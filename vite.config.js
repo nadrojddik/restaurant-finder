@@ -1,8 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/restaurant-finder/', // This should match your repository name
+  base: '/',  // Changed from '/restaurant-finder/' to '/'
 })
