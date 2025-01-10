@@ -32,8 +32,17 @@ const RestaurantFinder = () => {
       autocompleteRef.current.addListener('place_changed', () => {
         const place = autocompleteRef.current.getPlace();
         if (place.geometry) {
-          setLocation(place.formatted_address);
+          const fullAddress = place.formatted_address;
+          setLocation(fullAddress);
+          // Directly call handleSearch with the selected place's location
           handleSearch(place.geometry.location);
+        }
+      });
+
+      // Prevent form submission when selecting from autocomplete
+      searchInputRef.current.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && document.getElementsByClassName('pac-container').length > 0) {
+          e.preventDefault();
         }
       });
     }
@@ -133,11 +142,12 @@ const RestaurantFinder = () => {
     setLoading(true);
     setError('');
 
+    // If the form is submitted manually (not through autocomplete)
     try {
       const geocoder = new window.google.maps.Geocoder();
       const { results: geocodeResults } = await new Promise((resolve, reject) => {
         geocoder.geocode({ 
-          address: location,
+          address: location.trim(),
           componentRestrictions: { }, // Allow worldwide search
           language: 'en'
         }, (results, status) => {
@@ -145,13 +155,13 @@ const RestaurantFinder = () => {
             resolve({ results });
           } else {
             console.error('Geocoding error:', status);
-            reject(new Error(`Could not find "${location}". Please try a different search term.`));
+            reject(new Error(`Could not find "${location.trim()}". Please try a different search term.`));
           }
         });
       });
 
-      // Log the found location for debugging
-      console.log('Found location:', geocodeResults[0].formatted_address);
+      // Update location with formatted address
+      setLocation(geocodeResults[0].formatted_address);
       
       handleSearch(geocodeResults[0].geometry.location);
     } catch (err) {
