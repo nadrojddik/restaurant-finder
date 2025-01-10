@@ -70,8 +70,14 @@ const RestaurantFinder = () => {
 
       const placesResults = await new Promise((resolve, reject) => {
         service.nearbySearch(request, (results, status) => {
-          if (status === 'OK') resolve(results);
-          else reject(new Error('No restaurants found'));
+          console.log('Places search status:', status, 'Results:', results?.length || 0);
+          if (status === 'OK' && results && results.length > 0) {
+            resolve(results);
+          } else if (status === 'ZERO_RESULTS') {
+            reject(new Error('No alcohol-free restaurants found in this area. Try expanding your search.'));
+          } else {
+            reject(new Error('Unable to search restaurants. Please try again.'));
+          }
         });
       });
 
@@ -124,18 +130,35 @@ const RestaurantFinder = () => {
     e.preventDefault();
     if (!location) return;
 
+    setLoading(true);
+    setError('');
+
     try {
       const geocoder = new window.google.maps.Geocoder();
       const { results: geocodeResults } = await new Promise((resolve, reject) => {
-        geocoder.geocode({ address: location }, (results, status) => {
-          if (status === 'OK') resolve({ results });
-          else reject(new Error('Location not found'));
+        geocoder.geocode({ 
+          address: location,
+          componentRestrictions: { }, // Allow worldwide search
+          language: 'en'
+        }, (results, status) => {
+          if (status === 'OK' && results && results.length > 0) {
+            resolve({ results });
+          } else {
+            console.error('Geocoding error:', status);
+            reject(new Error(`Could not find "${location}". Please try a different search term.`));
+          }
         });
       });
 
+      // Log the found location for debugging
+      console.log('Found location:', geocodeResults[0].formatted_address);
+      
       handleSearch(geocodeResults[0].geometry.location);
     } catch (err) {
-      setError('Location not found. Please try again.');
+      console.error('Search error:', err);
+      setError(err.message || 'Location not found. Please try entering a city name or address.');
+    } finally {
+      setLoading(false);
     }
   };
 
