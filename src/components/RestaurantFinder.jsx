@@ -8,7 +8,9 @@ const RestaurantFinder = () => {
   const [error, setError] = useState('');
   const [map, setMap] = useState(null);
   const mapRef = useRef(null);
+  const autocompleteRef = useRef(null);
   const markersRef = useRef([]);
+  const searchInputRef = useRef(null);
 
   useEffect(() => {
     // Initialize map
@@ -19,6 +21,29 @@ const RestaurantFinder = () => {
       });
       setMap(initialMap);
     }
+
+    // Initialize autocomplete
+    if (searchInputRef.current && !autocompleteRef.current) {
+      autocompleteRef.current = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+        types: ['geocode']
+      });
+
+      // Listen for place selection
+      autocompleteRef.current.addListener('place_changed', () => {
+        const place = autocompleteRef.current.getPlace();
+        if (place.geometry) {
+          setLocation(place.formatted_address);
+          handleSearch(place.geometry.location);
+        }
+      });
+    }
+
+    // Cleanup
+    return () => {
+      if (autocompleteRef.current) {
+        window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
+      }
+    };
   }, [map]);
 
   const clearMarkers = () => {
@@ -26,23 +51,12 @@ const RestaurantFinder = () => {
     markersRef.current = [];
   };
 
-  const searchRestaurants = async (e) => {
-    e.preventDefault();
+  const handleSearch = async (searchLocation) => {
     setLoading(true);
     setError('');
     clearMarkers();
 
     try {
-      // Geocode the location
-      const geocoder = new window.google.maps.Geocoder();
-      const { results: geocodeResults } = await new Promise((resolve, reject) => {
-        geocoder.geocode({ address: location }, (results, status) => {
-          if (status === 'OK') resolve({ results });
-          else reject(new Error('Location not found'));
-        });
-      });
-
-      const searchLocation = geocodeResults[0].geometry.location;
       map.setCenter(searchLocation);
 
       // Search for restaurants
@@ -66,15 +80,19 @@ const RestaurantFinder = () => {
         const marker = new window.google.maps.Marker({
           position: place.geometry.location,
           map: map,
-          title: place.name
+          title: place.name,
+          animation: window.google.maps.Animation.DROP
         });
 
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
-            <div>
-              <h3 style="font-weight: bold; margin-bottom: 5px;">${place.name}</h3>
-              <p>${place.vicinity}</p>
-              ${place.rating ? `<p>Rating: ${place.rating} ⭐</p>` : ''}
+            <div class="p-2">
+              <h3 class="font-bold mb-1">${place.name}</h3>
+              <p class="text-gray-600">${place.vicinity}</p>
+              ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
+              ${place.opening_hours?.open_now !== undefined ? 
+                `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>` 
+                : ''}
             </div>
           `
         });
@@ -89,9 +107,11 @@ const RestaurantFinder = () => {
       setResults(placesResults);
       
       // Fit map bounds to show all markers
-      const bounds = new window.google.maps.LatLngBounds();
-      markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
-      map.fitBounds(bounds);
+      if (markersRef.current.length > 0) {
+        const bounds = new window.google.maps.LatLngBounds();
+        markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
+        map.fitBounds(bounds);
+      }
 
     } catch (err) {
       setError(err.message || 'Failed to fetch restaurants. Please try again.');
@@ -100,68 +120,100 @@ const RestaurantFinder = () => {
     }
   };
 
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    if (!location) return;
+
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+      const { results: geocodeResults } = await new Promise((resolve, reject) => {
+        geocoder.geocode({ address: location }, (results, status) => {
+          if (status === 'OK') resolve({ results });
+          else reject(new Error('Location not found'));
+        });
+      });
+
+      handleSearch(geocodeResults[0].geometry.location);
+    } catch (err) {
+      setError('Location not found. Please try again.');
+    }
+  };
+
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="mb-6 bg-white rounded-lg shadow-sm p-6">
-        <h2 className="text-2xl font-bold mb-4">Find Alcohol-Free Restaurants</h2>
-        <form onSubmit={searchRestaurants} className="flex gap-4">
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="Enter location"
-            className="flex-1 px-4 py-2 border rounded-lg"
-            required
-          />
-          <button
-            type="submit"
-            className="flex items-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-            disabled={loading}
-          >
-            <Search size={20} />
-            {loading ? 'Searching...' : 'Search'}
-          </button>
-        </form>
-      </div>
-
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg">
-          {error}
+    <div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-6 bg-white rounded-lg shadow-sm p-4 sm:p-6">
+          <h2 className="text-xl sm:text-2xl font-bold mb-4">Find Alcohol-Free Restaurants</h2>
+          <form onSubmit={handleFormSubmit} className="flex flex-col sm:flex-row gap-4">
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Enter location"
+              className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <button
+              type="submit"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+              disabled={loading}
+            >
+              <Search size={20} />
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+          </form>
         </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div 
-            ref={mapRef}
-            className="w-full h-96 bg-gray-100 rounded-lg"
-          />
-        </div>
-        
-        <div className="lg:col-span-1">
-          {results.length > 0 && (
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {results.map((place) => (
-                <div key={place.place_id} className="bg-white p-4 rounded-lg shadow-sm">
-                  <h3 className="text-lg font-semibold mb-2">{place.name}</h3>
-                  <p className="text-gray-600 mb-2">{place.vicinity}</p>
-                  {place.rating && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-yellow-500">★</span>
-                      <span>{place.rating}</span>
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-[50vh] sm:h-[60vh] lg:h-[70vh]">
+            <div 
+              ref={mapRef}
+              className="w-full h-full rounded-lg shadow-md overflow-hidden"
+            />
+          </div>
+          
+          <div className="lg:col-span-1">
+            {results.length > 0 && (
+              <div className="bg-white rounded-lg shadow-md p-4">
+                <h3 className="text-lg font-semibold mb-4">Found {results.length} restaurants</h3>
+                <div className="space-y-4 max-h-[calc(50vh-2rem)] sm:max-h-[calc(60vh-2rem)] lg:max-h-[calc(70vh-2rem)] overflow-y-auto">
+                  {results.map((place) => (
+                    <div 
+                      key={place.place_id} 
+                      className="bg-gray-50 p-4 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                      onClick={() => {
+                        map.panTo(place.geometry.location);
+                        map.setZoom(16);
+                      }}
+                    >
+                      <h4 className="text-lg font-semibold mb-2">{place.name}</h4>
+                      <p className="text-gray-600 mb-2">{place.vicinity}</p>
+                      {place.rating && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-yellow-500">★</span>
+                          <span>{place.rating.toFixed(1)}</span>
+                        </div>
+                      )}
+                      <div className="mt-2">
+                        <span className={`px-2 py-1 rounded-full text-sm ${
+                          place.opening_hours?.open_now ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {place.opening_hours?.open_now ? 'Open' : 'Closed'}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                  <div className="mt-2">
-                    <span className={`px-2 py-1 rounded-full text-sm ${
-                      place.opening_hours?.open_now ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {place.opening_hours?.open_now ? 'Open' : 'Closed'}
-                    </span>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
