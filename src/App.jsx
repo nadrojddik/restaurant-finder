@@ -1,4 +1,5 @@
-import RestaurantFinder from './components/RestaurantFinder'
+import React from 'react'
+import RestaurantFinder from './components/RestaurantFinder.jsx'
 
 function App() {
   return (
