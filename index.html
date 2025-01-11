@@ -8,9 +8,8 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Move Google Maps script after root div -->
-    <script type="module" src="./src/main.jsx"></script>
-    <!-- Load Google Maps with environment variable -->
+    <!-- Remove direct .jsx reference -->
+    <script type="module" src="./index.js"></script>
     <script defer
       src="https://maps.googleapis.com/maps/api/js?key=%VITE_GOOGLE_MAPS_API_KEY%&libraries=places">
     </script>
