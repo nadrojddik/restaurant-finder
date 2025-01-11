@@ -1,12 +1,11 @@
-import React from 'react'
-import RestaurantFinder from './components/RestaurantFinder.jsx'
+import React from 'react';
 
 function App() {
   return (
-    <div className="min-h-screen bg-white">
-      <RestaurantFinder />
+    <div className="App">
+      <h1 className="text-3xl font-bold underline">Restaurant Finder</h1>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
