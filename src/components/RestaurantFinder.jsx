@@ -89,41 +89,68 @@ const RestaurantFinder = () => {
   };
 
   const handleSearch = async (searchLocation) => {
-    if (!window.google || !map) {
-      setError('Maps service not yet initialized. Please try again.');
-      return;
-    }
+  if (!window.google || !map) {
+    setError('Maps service not yet initialized. Please try again.');
+    return;
+  }
 
-    setLoading(true);
-    setError('');
-    clearMarkers();
+  setLoading(true);
+  setError('');
+  clearMarkers();
 
-    try {
-      map.setCenter(searchLocation);
+  try {
+    map.setCenter(searchLocation);
 
-      const service = new window.google.maps.places.PlacesService(map);
-      
-      // Define search radii in meters (5km, 10km, 20km)
-      const searchRadii = [5000, 10000, 20000];
-      let allResults = [];
-      
-      // Try each radius until we get enough results
-      for (const radius of searchRadii) {
+    const service = new window.google.maps.places.PlacesService(map);
+    
+    // More specific restaurant types to exclude fast food
+    const specificRestaurantTypes = [
+      'restaurant',
+      'cafe',
+      'bakery',
+      'meal_takeaway',
+      // Remove 'meal_delivery' to exclude more fast-food options
+    ];
+
+    // Define more comprehensive search keywords
+    const searchKeywords = [
+      'restaurant -fast food -mcdonalds -burger -pizza',
+      'cafe',
+      'dining -alcohol',
+      'halal restaurant',
+      'vegetarian restaurant',
+      'healthy restaurant'
+    ];
+
+    // Define search radii in meters (5km, 10km, 20km, 50km)
+    const searchRadii = [5000, 10000, 20000, 50000];
+    let allResults = [];
+    
+    // Try each radius and keyword combination
+    for (const radius of searchRadii) {
+      for (const keyword of searchKeywords) {
         if (allResults.length >= 50) break;
         
         const request = {
           location: searchLocation,
-          radius: radius.toString(),
-          type: ['restaurant'],
-          keyword: 'halal OR alcohol-free OR non-alcoholic',
-          rankBy: window.google.maps.places.RankBy.DISTANCE
+          radius: radius,
+          types: specificRestaurantTypes,
+          keyword: keyword
         };
 
         try {
           const results = await new Promise((resolve, reject) => {
             service.nearbySearch(request, async (results, status, pagination) => {
               if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
-                let combinedResults = [...results];
+                // Additional client-side filtering
+                const filteredResults = results.filter(place => 
+                  // Exclude known fast food chains explicitly
+                  !place.name.toLowerCase().match(/mcdonalds|kfc|burger king|domino's|pizza hut|subway/i) &&
+                  // Optionally add more sophisticated filtering
+                  (!place.types || !place.types.includes('meal_delivery'))
+                );
+
+                let combinedResults = [...filteredResults];
                 
                 // Get next pages if available and we need more results
                 while (pagination && pagination.hasNextPage && combinedResults.length < 50) {
@@ -131,7 +158,11 @@ const RestaurantFinder = () => {
                   const nextResults = await new Promise(resolveNext => {
                     pagination.nextPage((results, status) => {
                       if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
-                        resolveNext(results);
+                        const filteredNextResults = results.filter(place => 
+                          !place.name.toLowerCase().match(/mcdonalds|kfc|burger king|domino's|pizza hut|subway/i) &&
+                          (!place.types || !place.types.includes('meal_delivery'))
+                        );
+                        resolveNext(filteredNextResults);
                       } else {
                         resolveNext([]);
                       }
@@ -154,75 +185,101 @@ const RestaurantFinder = () => {
           const uniqueNewResults = results.filter(r => !existingIds.has(r.place_id));
           allResults = [...allResults, ...uniqueNewResults];
           
-          console.log(`Found ${uniqueNewResults.length} new results at ${radius/1000}km radius. Total: ${allResults.length}`);
+          console.log(`Found ${uniqueNewResults.length} new results with keyword "${keyword}" at ${radius/1000}km radius. Total: ${allResults.length}`);
           
         } catch (err) {
-          console.error(`Error searching at ${radius}m radius:`, err);
-          // Continue to next radius even if this one fails
+          console.error(`Error searching with keyword "${keyword}" at ${radius}m radius:`, err);
+          // Continue to next keyword/radius even if this one fails
         }
       }
+    }
 
-      // If we didn't find any results at all, throw an error
-      if (allResults.length === 0) {
-        throw new Error('No alcohol-free restaurants found in this area. Try a different location.');
-      }
+    // If we didn't find any results at all, throw an error
+    if (allResults.length === 0) {
+      throw new Error('No suitable restaurants found in this area. Try a different location or expand your search.');
+    }
 
-      // Sort results by distance
-      const placesResults = allResults
-        .map(place => ({
-          ...place,
-          distance: google.maps.geometry.spherical.computeDistanceBetween(
+    // Sort results by distance
+    const placesResults = allResults
+      .map(place => {
+        let distance;
+        try {
+          // Preferred method using Google Maps geometry library
+          distance = window.google.maps.geometry.spherical.computeDistanceBetween(
             searchLocation,
             place.geometry.location
-          )
-        }))
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 50);
+          );
+        } catch (err) {
+          // Fallback calculation using Haversine formula
+          const toRadians = (degrees) => degrees * (Math.PI / 180);
+          const R = 6371; // Radius of the Earth in kilometers
+          const lat1 = searchLocation.lat();
+          const lon1 = searchLocation.lng();
+          const lat2 = place.geometry.location.lat();
+          const lon2 = place.geometry.location.lng();
 
-      placesResults.forEach(place => {
-        const marker = new window.google.maps.Marker({
-          position: place.geometry.location,
-          map: map,
-          title: place.name,
-          animation: window.google.maps.Animation.DROP
-        });
+          const dLat = toRadians(lat2 - lat1);
+          const dLon = toRadians(lon2 - lon1);
+          const a = 
+            Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          distance = R * c * 1000; // Convert to meters
+        }
 
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
-            <div class="p-2">
-              <h3 class="font-bold mb-1">${place.name}</h3>
-              <p class="text-gray-600">${place.vicinity}</p>
-              ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
-              ${place.opening_hours?.open_now !== undefined ? 
-                `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>` 
-                : ''}
-            </div>
-          `
-        });
+        return {
+          ...place,
+          distance
+        };
+      })
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 50);
 
-        marker.addListener('click', () => {
-          infoWindow.open(map, marker);
-        });
-
-        markersRef.current.push(marker);
+    // Rest of the method remains the same...
+    placesResults.forEach(place => {
+      const marker = new window.google.maps.Marker({
+        position: place.geometry.location,
+        map: map,
+        title: place.name,
+        animation: window.google.maps.Animation.DROP
       });
 
-      setResults(placesResults);
-      
-      if (markersRef.current.length > 0) {
-        const bounds = new window.google.maps.LatLngBounds();
-        markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
-        map.fitBounds(bounds);
-      }
+      const infoWindow = new window.google.maps.InfoWindow({
+        content: `
+          <div class="p-2">
+            <h3 class="font-bold mb-1">${place.name}</h3>
+            <p class="text-gray-600">${place.vicinity}</p>
+            ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
+            ${place.opening_hours?.open_now !== undefined ? 
+              `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>` 
+              : ''}
+          </div>
+        `
+      });
 
-    } catch (err) {
-      console.error('Search error:', err);
-      setError(err.message || 'Failed to fetch restaurants. Please try again.');
-    } finally {
-      setLoading(false);
+      marker.addListener('click', () => {
+        infoWindow.open(map, marker);
+      });
+
+      markersRef.current.push(marker);
+    });
+
+    setResults(placesResults);
+    
+    if (markersRef.current.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds();
+      markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
+      map.fitBounds(bounds);
     }
-  };
 
+  } catch (err) {
+    console.error('Search error:', err);
+    setError(err.message || 'Failed to fetch restaurants. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!location) return;
