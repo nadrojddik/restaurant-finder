@@ -9,6 +9,8 @@ const RestaurantFinder = () => {
   const [map, setMap] = useState(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const [showSearchAreaButton, setShowSearchAreaButton] = useState(false);
+  const normalizedLocation = normalizeLocation(searchLocation);
+
   const mapRef = useRef(null);
   const autocompleteRef = useRef(null);
   const markersRef = useRef([]);
@@ -16,6 +18,32 @@ const RestaurantFinder = () => {
   const lastSelectedPlace = useRef(null);
   const mapIdleListenerRef = useRef(null);
 
+
+  const normalizeLocation = (location) => {
+    // If it's already a google.maps.LatLng object, return it
+    if (location instanceof window.google.maps.LatLng) {
+      return location;
+    }
+
+    // If it's a plain object with lat/lng properties
+    if (location && typeof location === 'object') {
+      // If lat/lng are functions (google.maps.LatLng methods)
+      if (typeof location.lat === 'function' && typeof location.lng === 'function') {
+        return location;
+      }
+      // If lat/lng are plain properties
+      if ('lat' in location && 'lng' in location) {
+        return new window.google.maps.LatLng(
+            typeof location.lat === 'function' ? location.lat() : location.lat,
+            typeof location.lng === 'function' ? location.lng() : location.lng
+        );
+      }
+    }
+
+    // Default to New York if invalid location
+    console.warn('Invalid location format, defaulting to New York:', location);
+    return new window.google.maps.LatLng(40.7128, -74.0060);
+  };
   const getUserLocation = () => {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
@@ -91,6 +119,7 @@ const RestaurantFinder = () => {
                   Math.abs(mapCenter.lng - initialCenter.lng) > 0.0001;
 
               setShowSearchAreaButton(!loading && hasMoved);
+
             }
           });
 
@@ -178,7 +207,7 @@ const RestaurantFinder = () => {
   clearMarkers();
 
   try {
-    map.setCenter(searchLocation);
+    map.setCenter(normalizedLocation);
 
     const service = new window.google.maps.places.PlacesService(map);
     
@@ -197,8 +226,6 @@ const RestaurantFinder = () => {
       'cafe',
       'dining -alcohol',
       'halal restaurant',
-      'vegetarian restaurant',
-      'healthy restaurant'
     ];
 
     // Define search radii in meters (5km, 10km, 20km, 50km)
@@ -211,7 +238,7 @@ const RestaurantFinder = () => {
         if (allResults.length >= 50) break;
         
         const request = {
-          location: searchLocation,
+          location: normalizedLocation,
           radius: radius,
           types: specificRestaurantTypes,
           keyword: keyword
@@ -285,7 +312,7 @@ const RestaurantFinder = () => {
         try {
           // Preferred method using Google Maps geometry library
           distance = window.google.maps.geometry.spherical.computeDistanceBetween(
-            searchLocation,
+            normalizedLocation,
             place.geometry.location
           );
         } catch (err) {
