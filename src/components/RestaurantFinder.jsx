@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Crosshair } from 'lucide-react';
 
 const RestaurantFinder = () => {
+  // First: State declarations
   const [location, setLocation] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -9,8 +10,8 @@ const RestaurantFinder = () => {
   const [map, setMap] = useState(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const [showSearchAreaButton, setShowSearchAreaButton] = useState(false);
-  const normalizedLocation = normalizeLocation(searchLocation);
 
+  // Second: Ref declarations
   const mapRef = useRef(null);
   const autocompleteRef = useRef(null);
   const markersRef = useRef([]);
@@ -18,7 +19,7 @@ const RestaurantFinder = () => {
   const lastSelectedPlace = useRef(null);
   const mapIdleListenerRef = useRef(null);
 
-
+  // Third: Place normalizeLocation function here
   const normalizeLocation = (location) => {
     // If it's already a google.maps.LatLng object, return it
     if (location instanceof window.google.maps.LatLng) {
@@ -105,11 +106,6 @@ const RestaurantFinder = () => {
             const bounds = initialMap.getBounds();
 
             if (center && bounds) {
-              const visibleRadius = window.google.maps.geometry.spherical.computeDistanceBetween(
-                  center,
-                  bounds.getNorthEast()
-              );
-
               // Only show "Search This Area" button if the map has been moved
               // and we're not currently loading results
               const mapCenter = { lat: center.lat(), lng: center.lng() };
@@ -119,7 +115,6 @@ const RestaurantFinder = () => {
                   Math.abs(mapCenter.lng - initialCenter.lng) > 0.0001;
 
               setShowSearchAreaButton(!loading && hasMoved);
-
             }
           });
 
@@ -197,32 +192,30 @@ const RestaurantFinder = () => {
   };
 
   const handleSearch = async (searchLocation) => {
-  if (!window.google || !map) {
-    setError('Maps service not yet initialized. Please try again.');
-    return;
-  }
+    if (!window.google || !map) {
+      setError('Maps service not yet initialized. Please try again.');
+      return;
+    }
 
-  setLoading(true);
-  setError('');
-  clearMarkers();
+    setLoading(true);
+    setError('');
+    clearMarkers();
 
-  try {
-    map.setCenter(normalizedLocation);
+    const normalizedLocation = normalizeLocation(searchLocation); // Add this line here
 
+    try {
+      map.setCenter(normalizedLocation);
     const service = new window.google.maps.places.PlacesService(map);
-    
     // More specific restaurant types to exclude fast food
     const specificRestaurantTypes = [
       'restaurant',
       'cafe',
       'bakery',
       'meal_takeaway',
-      // Remove 'meal_delivery' to exclude more fast-food options
     ];
 
-    // Define more comprehensive search keywords
     const searchKeywords = [
-      'restaurant -fast food -mcdonalds -burger -pizza',
+      'restaurant -fast food -mcdonalds',
       'cafe',
       'dining -alcohol',
       'halal restaurant',
@@ -319,8 +312,8 @@ const RestaurantFinder = () => {
           // Fallback calculation using Haversine formula
           const toRadians = (degrees) => degrees * (Math.PI / 180);
           const R = 6371; // Radius of the Earth in kilometers
-          const lat1 = searchLocation.lat();
-          const lon1 = searchLocation.lng();
+          const lat1 = normalizedLocation.lat();
+          const lon1 = normalizedLocation.lng();
           const lat2 = place.geometry.location.lat();
           const lon2 = place.geometry.location.lng();
 
