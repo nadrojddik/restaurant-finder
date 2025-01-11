@@ -73,6 +73,7 @@ const RestaurantFinder = () => {
     });
   };
 
+  // First useEffect - Map initialization
   useEffect(() => {
     const initializeGoogleMaps = async () => {
       if (!window.google) {
@@ -98,24 +99,6 @@ const RestaurantFinder = () => {
             streetViewControl: false,
             rotateControl: false,
             fullscreenControl: false
-          });
-
-          // Add listener for map idle state
-          mapIdleListenerRef.current = initialMap.addListener('idle', () => {
-            const center = initialMap.getCenter();
-            const bounds = initialMap.getBounds();
-
-            if (center && bounds) {
-              // Only show "Search This Area" button if the map has been moved
-              // and we're not currently loading results
-              const mapCenter = { lat: center.lat(), lng: center.lng() };
-              const initialCenter = userLocation;
-              const hasMoved =
-                  Math.abs(mapCenter.lat - initialCenter.lat) > 0.0001 ||
-                  Math.abs(mapCenter.lng - initialCenter.lng) > 0.0001;
-
-              setShowSearchAreaButton(!loading && hasMoved);
-            }
           });
 
           setMap(initialMap);
@@ -152,6 +135,47 @@ const RestaurantFinder = () => {
         }
       }
     };
+
+    initializeGoogleMaps();
+
+    return () => {
+      if (autocompleteRef.current) {
+        window.google?.maps?.event.clearInstanceListeners(autocompleteRef.current);
+      }
+    };
+  }, [map, mapsLoaded]);
+
+// Second useEffect - Map idle listener
+  useEffect(() => {
+    if (!map) return;
+
+    // Store initial location for comparison
+    const initialLocation = map.getCenter();
+    const initialPos = {
+      lat: initialLocation.lat(),
+      lng: initialLocation.lng()
+    };
+
+    mapIdleListenerRef.current = map.addListener('idle', () => {
+      const center = map.getCenter();
+      const bounds = map.getBounds();
+
+      if (center && bounds) {
+        const mapCenter = { lat: center.lat(), lng: center.lng() };
+        const hasMoved =
+            Math.abs(mapCenter.lat - initialPos.lat) > 0.0001 ||
+            Math.abs(mapCenter.lng - initialPos.lng) > 0.0001;
+
+        setShowSearchAreaButton(!loading && hasMoved);
+      }
+    });
+
+    return () => {
+      if (mapIdleListenerRef.current) {
+        window.google?.maps?.event.removeListener(mapIdleListenerRef.current);
+      }
+    };
+  }, [map, loading]);
 
     initializeGoogleMaps();
 
