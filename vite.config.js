@@ -3,8 +3,16 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   base: '/restaurant-finder/',
-  plugins: [react()],
-  define: {
-    'process.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(process.env.VITE_GOOGLE_MAPS_API_KEY)
-  }
+  plugins: [
+    react(),
+    {
+      name: 'html-transform',
+      transformIndexHtml(html) {
+        return html.replace(
+            /__VITE_GOOGLE_MAPS_API_KEY__/g,
+            process.env.VITE_GOOGLE_MAPS_API_KEY || ''
+        )
+      }
+    }
+  ]
 })
