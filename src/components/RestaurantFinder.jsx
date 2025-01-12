@@ -349,10 +349,12 @@ const RestaurantFinder = () => {
       const sortedResults = allResults
           .map(place => ({
             ...place,
-            distance: window.google.maps.geometry.spherical.computeDistanceBetween(
-                searchLocation,
-                place.geometry.location
-            )
+            distance: window.google.maps.geometry?.spherical
+                ? window.google.maps.geometry.spherical.computeDistanceBetween(
+                    searchLocation,
+                    place.geometry.location
+                )
+                : 0  // Fallback value if geometry is not available
           }))
           .sort((a, b) => a.distance - b.distance)
           .slice(0, 30);
