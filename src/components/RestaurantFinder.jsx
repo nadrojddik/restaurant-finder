@@ -9,10 +9,8 @@ const RestaurantFinder = () => {
   const [map, setMap] = useState(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const mapRef = useRef(null);
-  const autocompleteRef = useRef(null);
   const markersRef = useRef([]);
   const searchInputRef = useRef(null);
-  const lastSelectedPlace = useRef(null);
 
   useEffect(() => {
     const initializeGoogleMaps = () => {
@@ -43,42 +41,9 @@ const RestaurantFinder = () => {
           setError('Failed to initialize map. Please refresh the page.');
         }
       }
-
-      if (searchInputRef.current && !autocompleteRef.current) {
-        try {
-          autocompleteRef.current = new window.google.maps.places.Autocomplete(
-              searchInputRef.current,
-              { types: ['geocode'] }
-          );
-
-          autocompleteRef.current.addListener('place_changed', () => {
-            const place = autocompleteRef.current.getPlace();
-            if (place.geometry) {
-              lastSelectedPlace.current = place;
-              setLocation(place.formatted_address);
-              handleSearch(place.geometry.location);
-            }
-          });
-
-          searchInputRef.current.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && document.getElementsByClassName('pac-container').length > 0) {
-              e.preventDefault();
-            }
-          });
-        } catch (err) {
-          console.error('Error initializing autocomplete:', err);
-          setError('Failed to initialize location search. Please refresh the page.');
-        }
-      }
     };
 
     initializeGoogleMaps();
-
-    return () => {
-      if (autocompleteRef.current) {
-        window.google?.maps?.event.clearInstanceListeners(autocompleteRef.current);
-      }
-    };
   }, [map, mapsLoaded]);
 
   const clearMarkers = () => {
@@ -366,12 +331,6 @@ const RestaurantFinder = () => {
       return;
     }
 
-    // If we have a last selected place and its address matches current location
-    if (lastSelectedPlace.current && lastSelectedPlace.current.formatted_address === location) {
-      handleSearch(lastSelectedPlace.current.geometry.location);
-      return;
-    }
-
     setLoading(true);
     setError('');
 
@@ -393,10 +352,6 @@ const RestaurantFinder = () => {
       });
 
       setLocation(geocodeResults[0].formatted_address);
-      lastSelectedPlace.current = {
-        formatted_address: geocodeResults[0].formatted_address,
-        geometry: { location: geocodeResults[0].geometry.location }
-      };
       handleSearch(geocodeResults[0].geometry.location);
     } catch (err) {
       console.error('Search error:', err);
@@ -405,7 +360,6 @@ const RestaurantFinder = () => {
       setLoading(false);
     }
   };
-
   return (
       <div className="relative h-screen w-screen">
         <div
