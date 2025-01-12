@@ -10,6 +10,7 @@ const RestaurantFinder = () => {
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const [showOpenOnly, setShowOpenOnly] = useState(false);
   const [isListVisible, setIsListVisible] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
 
   // Refs
   const mapRef = useRef(null);
@@ -68,8 +69,8 @@ const RestaurantFinder = () => {
             const place = autocompleteRef.current.getPlace();
             if (place.geometry) {
               setLocation(place.formatted_address);
+              setSelectedLocation(place.geometry.location);
               map.setCenter(place.geometry.location);
-              handleSearch(place.geometry.location);
             }
           });
         } catch (err) {
@@ -126,7 +127,15 @@ const RestaurantFinder = () => {
       return;
     }
 
+    const options = {
+      enableHighAccuracy: true,  // Use GPS if available
+      timeout: 10000,           // Time to wait for position (10 seconds)
+      maximumAge: 0             // Don't use cached position
+    };
+
     setLoading(true);
+    setError(''); // Clear any existing errors
+
     navigator.geolocation.getCurrentPosition(
         async (position) => {
           const userLocation = {
@@ -142,16 +151,30 @@ const RestaurantFinder = () => {
           setLoading(false);
         },
         (error) => {
-          setError('Unable to get your location. Please try entering it manually.');
           setLoading(false);
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              setError('Location permission was denied. Please check your browser settings and allow location access.');
+              break;
+            case error.POSITION_UNAVAILABLE:
+              setError('Location information is unavailable. Please try entering your location manually.');
+              break;
+            case error.TIMEOUT:
+              setError('Request to get location timed out. Please try again.');
+              break;
+            default:
+              setError('An unknown error occurred while trying to get your location.');
+          }
           console.error('Geolocation error:', error);
-        }
+        },
+        options
     );
   };
 
   // Search based on current map center
   const searchCurrentLocation = () => {
     if (!map) return;
+    setSelectedLocation(null); // Clear any selected location
     const center = map.getCenter();
     handleSearch(center);
   };
@@ -179,6 +202,9 @@ const RestaurantFinder = () => {
 
   // Main search handler
   const handleSearch = async (searchLocation) => {
+    // Use selectedLocation if available, otherwise use the provided searchLocation
+    const locationToSearch = selectedLocation || searchLocation;
+
     if (!window.google || !map) {
       setError('Maps service not yet initialized. Please try again.');
       return;
@@ -189,18 +215,40 @@ const RestaurantFinder = () => {
     clearMarkers();
 
     try {
-      map.setCenter(searchLocation);
+      map.setCenter(locationToSearch);
       const service = new window.google.maps.places.PlacesService(map);
 
       const searchConfig = {
-        placeTypes: ['restaurant', 'cafe', 'bakery'],
+        placeTypes: [
+          { type: 'restaurant', priority: 1 },
+          { type: 'cafe', priority: 2 },
+          { type: 'bakery', priority: 2 }
+        ],
+
+        excludedTypes: [
+          'bar',
+          'night_club',
+          'liquor_store',
+          'casino',
+          'bowling_alley',  // Often have bars
+          'movie_theater',  // Many serve alcohol now
+          'restaurant_bar'
+        ],
         positiveKeywords: [
           'halal restaurant',
           'family restaurant',
+          'juice bar',
+          'dessert cafe',
+          'ice cream',
+          'bubble tea',
+          'coffee shop',
+          'tea house',
           'vegetarian',
           'vegan',
-          'juice bar',
-          'dessert cafe'
+          'middle eastern',
+          'indian restaurant', // Many Indian restaurants are alcohol-free
+          'halal cart',
+          'smoothie'
         ],
         excludeTerms: [
           'bar',
@@ -214,7 +262,25 @@ const RestaurantFinder = () => {
           'spirits',
           'nightclub',
           'cocktail',
-          'liquor'
+          'liquor',
+          'speakeasy',
+          'lounge',
+          'sports bar',
+          'dive bar',
+          'irish pub',
+          'english pub',
+          'german pub',
+          'biergarten',
+          'beer garden',
+          'microbrewery',
+          'brewpub',
+          'wine bar',
+          'sake bar',
+          'izakaya',  // Japanese pubs
+          'cantina',
+          'vineyard',
+          'wine tasting',
+          'beer tasting'
         ],
         excludedChains: [
           'mcdonalds',
@@ -233,17 +299,22 @@ const RestaurantFinder = () => {
       for (const radius of searchConfig.searchRadii) {
         if (allResults.length >= 50) break;
 
-        for (const keyword of searchConfig.positiveKeywords) {
-          if (allResults.length >= 30) break;
+        // First loop through place types
+        for (const placeType of searchConfig.placeTypes) {
+          if (allResults.length >= 50) break;
 
-          const request = {
-            location: searchLocation,
-            radius: radius,
-            type: 'restaurant',
-            keyword: keyword
-          };
+          // Then loop through keywords for each type
+          for (const keyword of searchConfig.positiveKeywords) {
+            if (allResults.length >= 30) break;
 
-          try {
+            const request = {
+              location: searchLocation,
+              radius: radius,
+              type: placeType.type,
+              keyword: keyword
+            };
+
+            try {
             const results = await new Promise((resolve, reject) => {
               service.nearbySearch(request, (results, status) => {
                 if (status === window.google.maps.places.PlacesServiceStatus.OK) {
@@ -258,15 +329,22 @@ const RestaurantFinder = () => {
 
             const filteredResults = results.filter(place => {
               const placeName = place.name.toLowerCase();
+
+              // Check excluded terms in name
               if (searchConfig.excludeTerms.some(term => placeName.includes(term.toLowerCase()))) {
                 return false;
               }
+
+              // Check excluded chains
               if (searchConfig.excludedChains.some(chain => placeName.includes(chain.toLowerCase()))) {
                 return false;
               }
-              if (place.types?.includes('bar') || place.types?.includes('night_club')) {
+
+              // Check place types
+              if (place.types?.some(type => searchConfig.excludedTypes.includes(type))) {
                 return false;
               }
+
               return true;
             });
 
@@ -297,11 +375,12 @@ const RestaurantFinder = () => {
             const uniqueNewResults = detailedResults.filter(r => !existingIds.has(r.place_id));
             allResults = [...allResults, ...uniqueNewResults];
 
-          } catch (err) {
-            console.error(`Search error with keyword "${keyword}" at ${radius}m:`, err);
-          }
-        }
-      }
+            } catch (err) {
+              console.error(`Search error with keyword "${keyword}" at ${radius}m:`, err);
+            }
+          } // end keyword loop
+        } // end placeType loop
+      } // end radius loop
 
       if (allResults.length === 0) {
         throw new Error('No suitable restaurants found. Try a different location or expand your search.');
@@ -318,52 +397,53 @@ const RestaurantFinder = () => {
           .sort((a, b) => a.distance - b.distance)
           .slice(0, 50);
 
-      sortedResults.forEach(place => {
-        const marker = new window.google.maps.Marker({
-          position: place.geometry.location,
-          map: map,
-          title: place.name,
-          animation: window.google.maps.Animation.DROP
-        });
+        sortedResults.forEach(place => {
+          const marker = new window.google.maps.Marker({
+            position: place.geometry.location,
+            map: map,
+            title: place.name,
+            animation: window.google.maps.Animation.DROP
+          });
 
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
+          const infoWindow = new window.google.maps.InfoWindow({
+            content: `
             <div class="p-2">
               <h3 class="font-bold mb-1">${place.name}</h3>
               <p class="text-gray-600">${place.vicinity}</p>
               ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
               ${place.opening_hours?.open_now !== undefined ?
-              `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>`
-              : ''}
+                `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>`
+                : ''}
               ${place.formatted_phone_number ?
-              `<p class="mt-1">📞 ${place.formatted_phone_number}</p>`
-              : ''}
+                `<p class="mt-1">📞 ${place.formatted_phone_number}</p>`
+                : ''}
             </div>
           `
+          });
+
+          marker.addListener('click', () => {
+            infoWindow.open(map, marker);
+          });
+
+          markersRef.current.push(marker);
         });
 
-        marker.addListener('click', () => {
-          infoWindow.open(map, marker);
-        });
+        setResults(sortedResults);
 
-        markersRef.current.push(marker);
-      });
-
-      setResults(sortedResults);
-
-      if (markersRef.current.length > 0) {
-        const bounds = new window.google.maps.LatLngBounds();
-        markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
-        map.fitBounds(bounds);
-      }
+        if (markersRef.current.length > 0) {
+          const bounds = new window.google.maps.LatLngBounds();
+          markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
+          map.fitBounds(bounds);
+        }
 
     } catch (err) {
       console.error('Search error:', err);
       setError(err.message || 'Failed to fetch restaurants. Please try again.');
     } finally {
+      setSelectedLocation(null);
       setLoading(false);
     }
-  };
+  }  // End of handleSearch
 
   // Mobile-specific handlers
   const toggleList = () => {
@@ -408,7 +488,10 @@ const RestaurantFinder = () => {
                     Search This Area
                   </button>
                   <button
-                      onClick={() => handleSearch(map.getCenter())}
+                      onClick={() => {
+                        const searchLoc = selectedLocation || map.getCenter();
+                        handleSearch(searchLoc);
+                      }}
                       className="flex-1 px-4 py-2 text-sm text-white bg-blue-500 rounded-lg hover:bg-blue-600"
                       disabled={loading || !mapsLoaded}
                   >
