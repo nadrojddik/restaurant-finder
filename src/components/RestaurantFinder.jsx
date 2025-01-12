@@ -377,7 +377,7 @@ const RestaurantFinder = () => {
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Enter location"
+                    placeholder="Enter location (city, address, or place)"
                     className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                     required
                 />
