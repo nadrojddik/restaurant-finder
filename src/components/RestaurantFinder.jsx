@@ -11,15 +11,26 @@ const RestaurantFinder = () => {
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const searchInputRef = useRef(null);
+  const autocompleteRef = useRef(null);      
+  const lastSelectedPlace = useRef(null);    
 
   useEffect(() => {
     const initializeGoogleMaps = () => {
-      if (!window.google) {
-        setTimeout(initializeGoogleMaps, 100);
+      // Add debug logging
+      console.log('Checking Google Maps initialization...', {
+        googleExists: !!window.google,
+        mapsExists: !!(window.google?.maps),
+        placesExists: !!(window.google?.maps?.places)
+      });
+
+      if (!window.google || !window.google.maps || !window.google.maps.places) {
+        console.log('Google Maps not fully loaded, retrying...');
+        setTimeout(initializeGoogleMaps, 1000); // Increased timeout
         return;
       }
 
       if (!mapsLoaded) {
+        console.log('Maps now fully loaded');
         setMapsLoaded(true);
       }
 
@@ -41,9 +52,44 @@ const RestaurantFinder = () => {
           setError('Failed to initialize map. Please refresh the page.');
         }
       }
+
+      if (searchInputRef.current && !autocompleteRef.current) {
+        try {
+          autocompleteRef.current = new window.google.maps.places.Autocomplete(
+              searchInputRef.current,
+              { types: ['geocode'] }
+          );
+
+          // When place is selected from autocomplete
+          autocompleteRef.current.addListener('place_changed', () => {
+            const place = autocompleteRef.current.getPlace();
+            if (place.geometry) {
+              lastSelectedPlace.current = place;
+              setLocation(place.formatted_address);
+              handleSearch(place.geometry.location);
+            }
+          });
+
+          // Prevent form submission during autocomplete selection
+          searchInputRef.current.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && document.getElementsByClassName('pac-container').length > 0) {
+              e.preventDefault();
+            }
+          });
+        } catch (err) {
+          console.error('Error initializing autocomplete:', err);
+          setError('Failed to initialize location search. Please refresh the page.');
+        }
+      }
     };
 
     initializeGoogleMaps();
+
+    return () => {
+      if (autocompleteRef.current) {
+        window.google?.maps?.event.clearInstanceListeners(autocompleteRef.current);
+      }
+    };
   }, [map, mapsLoaded]);
 
   const clearMarkers = () => {
