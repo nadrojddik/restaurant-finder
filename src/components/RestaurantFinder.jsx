@@ -73,7 +73,7 @@ const RestaurantFinder = () => {
   };
 // 4. useEffect hooks
   useEffect(() => {
-    const initializeGoogleMaps = async () => {
+    const initializeGoogleMaps = () => {
       if (!window.google) {
         setTimeout(initializeGoogleMaps, 100);
         return;
@@ -85,10 +85,9 @@ const RestaurantFinder = () => {
 
       if (mapRef.current && !map) {
         try {
-          const userLocation = await getUserLocation();
           const initialMap = new window.google.maps.Map(mapRef.current, {
-            center: userLocation,
-            zoom: 14,
+            center: { lat: 40.7128, lng: -74.0060 },
+            zoom: 12,
             zoomControl: true,
             mapTypeControl: false,
             scaleControl: true,
@@ -96,38 +95,10 @@ const RestaurantFinder = () => {
             rotateControl: false,
             fullscreenControl: false
           });
-
           setMap(initialMap);
         } catch (err) {
           console.error('Error initializing map:', err);
           setError('Failed to initialize map. Please refresh the page.');
-        }
-      }
-
-      if (searchInputRef.current && !autocompleteRef.current) {
-        try {
-          autocompleteRef.current = new window.google.maps.places.Autocomplete(
-              searchInputRef.current,
-              { types: ['geocode'] }
-          );
-
-          autocompleteRef.current.addListener('place_changed', () => {
-            const place = autocompleteRef.current.getPlace();
-            if (place.geometry) {
-              lastSelectedPlace.current = place;
-              setLocation(place.formatted_address);
-              handleSearch(place.geometry.location);
-            }
-          });
-
-          searchInputRef.current.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && document.getElementsByClassName('pac-container').length > 0) {
-              e.preventDefault();
-            }
-          });
-        } catch (err) {
-          console.error('Error initializing autocomplete:', err);
-          setError('Failed to initialize location search. Please refresh the page.');
         }
       }
     };
@@ -140,6 +111,7 @@ const RestaurantFinder = () => {
       }
     };
   }, [map, mapsLoaded]);
+
 
   useEffect(() => {
     if (!map) return;
@@ -324,7 +296,28 @@ const RestaurantFinder = () => {
           .sort((a, b) => a.distance - b.distance)
           .slice(0, 50);
 
-      placesResults.forEach(place => {
+      const detailedPlaces = await Promise.all(placesResults.map(async place => {
+        try {
+          const details = await new Promise((resolve, reject) => {
+            service.getDetails({
+              placeId: place.place_id,
+              fields: ['formatted_phone_number']
+            }, (result, status) => {
+              if (status === window.google.maps.places.PlacesServiceStatus.OK) {
+                resolve(result);
+              } else {
+                resolve({}); // Return empty object if details not available
+              }
+            });
+          });
+          return { ...place, ...details };
+        } catch (error) {
+          console.error('Error fetching place details:', error);
+          return place;
+        }
+      }));
+
+      detailedPlaces.forEach(place => {
         const marker = new window.google.maps.Marker({
           position: place.geometry.location,
           map: map,
@@ -334,15 +327,18 @@ const RestaurantFinder = () => {
 
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
-            <div class="p-2">
-              <h3 class="font-bold mb-1">${place.name}</h3>
-              <p class="text-gray-600">${place.vicinity}</p>
-              ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
-              ${place.opening_hours?.open_now !== undefined ?
+          <div class="p-2">
+            <h3 class="font-bold mb-1">${place.name}</h3>
+            <p class="text-gray-600">${place.vicinity}</p>
+            ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
+            ${place.opening_hours?.open_now !== undefined ?
               `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>`
               : ''}
-            </div>
-          `
+            ${place.formatted_phone_number ?
+              `<p class="mt-1"><a href="tel:${place.formatted_phone_number}" class="text-blue-600 hover:text-blue-800">${place.formatted_phone_number}</a></p>`
+              : ''}
+          </div>
+        `
         });
 
         marker.addListener('click', () => {
@@ -352,8 +348,7 @@ const RestaurantFinder = () => {
         markersRef.current.push(marker);
       });
 
-      setResults(placesResults);
-
+      setResults(detailedPlaces);
       if (markersRef.current.length > 0) {
         const bounds = new window.google.maps.LatLngBounds();
         markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
@@ -505,12 +500,21 @@ const RestaurantFinder = () => {
                             {(place.distance / 1000).toFixed(1)}km away
                           </div>
                         </div>
-                        <div className="mt-2">
-                    <span className={`px-2 py-1 rounded-full text-sm ${
-                        place.opening_hours?.open_now ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {place.opening_hours?.open_now ? 'Open' : 'Closed'}
-                    </span>
+                        <div className="mt-2 flex flex-wrap gap-2">
+      <span className={`px-2 py-1 rounded-full text-sm ${
+          place.opening_hours?.open_now ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+      }`}>
+        {place.opening_hours?.open_now ? 'Open' : 'Closed'}
+      </span>
+                          {place.formatted_phone_number && (
+                              <a
+                                  href={`tel:${place.formatted_phone_number}`}
+                                  className="px-2 py-1 rounded-full text-sm bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors"
+                                  onClick={(e) => e.stopPropagation()}
+                              >
+                                {place.formatted_phone_number}
+                              </a>
+                          )}
                         </div>
                       </div>
                   ))}
