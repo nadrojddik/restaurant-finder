@@ -63,222 +63,191 @@ const RestaurantFinder = () => {
 
     try {
       map.setCenter(searchLocation);
-
       const service = new window.google.maps.places.PlacesService(map);
 
-      // Types of establishments we want to search for
-      const specificRestaurantTypes = [
-        'restaurant',
-        'cafe',
-        'bakery',
-        'meal_takeaway',
-      ];
+      // Core configuration for search criteria
+      const searchConfig = {
+        // Primary establishment types we want to find
+        placeTypes: ['restaurant', 'cafe', 'bakery'],
 
-      // Keywords to boost relevant results
-      const positiveKeywords = [
-        'alcohol-free',
-        'dry restaurant',
-        'halal restaurant',
-        'juice bar'
-      ];
+        // Search terms that indicate alcohol-free establishments
+        positiveKeywords: [
+          'halal restaurant',
+          'family restaurant',
+          'vegetarian',
+          'vegan',
+          'juice bar',
+          'dessert cafe'
+        ],
 
-      // Terms that should automatically exclude a place from results
-      const hardExcludeTerms = [
-        'bar',
-        'pub',
-        'brewery',
-        'taproom',
-        'tavern',
-        'wine',
-        'beer',
-        'alcohol',
-        'spirits',
-        'booze'
-      ];
+        // Terms that should exclude a place
+        excludeTerms: [
+          'bar',
+          'pub',
+          'brewery',
+          'taproom',
+          'tavern',
+          'wine',
+          'beer',
+          'alcohol',
+          'spirits',
+          'booze',
+          'nightclub',
+          'night club',
+          'cocktail',
+          'liquor',
+          'ales',
+          'winery',
+          'distillery',
+          'speakeasy',
+          'lounge',
+          'sports bar',
+          'dive bar',
+          'irish pub',
+          'english pub',
+          'german pub',
+          'biergarten',
+          'beer garden',
+          'microbrewery',
+          'brewpub',
+          'wine bar',
+          'sake bar',
+          'izakaya'
+        ],
 
-      // Major fast food chains to exclude
-      const fastFoodChains = [
-        'mcdonalds',
-        'burger king',
-        'wendys',
-        'kfc',
-        'popeyes',
-        'taco bell',
-        'subway',
-        'dominos',
-        'pizza hut',
-        'arbys',
-        'sonic drive-in',
-        'dairy queen',
-        'jack in the box',
-        'carls jr',
-        'hardees',
-        'little caesars',
-        'dunkin',
-        'culvers',
-        'zaxbys',
-        'raising canes',
-        'checkers',
-        'rallys',
-        'whataburger',
-        'white castle',
-        'bojangles',
-        'papa johns',
-        'buffalo wild wings',
-        'chick-fil-a',
-        'starbucks',
-        'dunkin donuts',
-        'baskin robbins',
-        'krispy kreme',
-        'cold stone creamery',
-        'auntie annes',
-        'cinnabon',
-        'tropical smoothie cafe',
-        'smoothie king'
-      ];
+        // Fast food chains to exclude (comprehensive list)
+        excludedChains: [
+          'mcdonalds',
+          'burger king',
+          'wendys',
+          'kfc',
+          'popeyes',
+          'taco bell',
+          'subway',
+          'dominos',
+          'pizza hut',
+          'arbys',
+          'sonic drive-in',
+          'dairy queen',
+          'jack in the box',
+          'carls jr',
+          'hardees',
+          'little caesars',
+          'dunkin',
+          'culvers',
+          'zaxbys',
+          'raising canes',
+          'checkers',
+          'rallys',
+          'whataburger',
+          'white castle',
+          'bojangles',
+          'papa johns',
+          'buffalo wild wings',
+          'chick-fil-a',
+          'starbucks',
+          'dunkin donuts',
+          'baskin robbins',
+          'krispy kreme',
+          'cold stone creamery',
+          'auntie annes',
+          'cinnabon',
+          'tropical smoothie cafe',
+          'smoothie king'
+        ],
 
-      // Configuration object for Google Places API
-      const placesConfig = {
-        excludedTypes: ['bar', 'night_club', 'liquor_store', 'brewery'],
-        maxPriceLevel: 3,
-        buildSearchQuery: (baseQuery) => {
-          const excludeTerms = hardExcludeTerms.map(term => `-${term}`).join(' ');
-          const includeTerms = positiveKeywords.join(' OR ');
-          return `${baseQuery} ${includeTerms} ${excludeTerms}`;
-        },
-        filterResults: (place) => {
-          // Hard exclusions
-          if (place.types?.some(type => placesConfig.excludedTypes.includes(type))) {
-            return false;
-          }
-
-          if (place.serves_alcohol === true) {
-            return false;
-          }
-
-          const placeName = place.name.toLowerCase();
-          if (hardExcludeTerms.some(term => placeName.includes(term.toLowerCase()))) {
-            return false;
-          }
-
-          // Soft exclusions
-          if (place.price_level > placesConfig.maxPriceLevel) {
-            return false;
-          }
-
-          if (fastFoodChains.some(chain => placeName.includes(chain.toLowerCase()))) {
-            return false;
-          }
-
-          return true;
-        }
+        // Search radii in meters
+        searchRadii: [1000, 2000, 5000]
       };
 
-      // Define search radii in meters (5km, 10km, 20km, 50km)
-      const searchRadii = [5000, 10000, 20000, 50000];
       let allResults = [];
 
-      // Try each radius with configured search parameters
-      for (const radius of searchRadii) {
-        if (allResults.length >= 50) break;
+      // Perform searches with different radii and keywords
+      for (const radius of searchConfig.searchRadii) {
+        if (allResults.length >= 30) break; // Stop if we have enough results
 
-        const baseQuery = 'restaurant';
-        const request = {
-          location: searchLocation,
-          radius: radius,
-          types: specificRestaurantTypes,
-          keyword: placesConfig.buildSearchQuery(baseQuery)
-        };
+        for (const keyword of searchConfig.positiveKeywords) {
+          if (allResults.length >= 30) break;
 
-        try {
-          const results = await new Promise((resolve, reject) => {
-            service.nearbySearch(request, async (results, status, pagination) => {
-              if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
-                const filteredResults = results.filter(place => placesConfig.filterResults(place));
+          const request = {
+            location: searchLocation,
+            radius: radius,
+            type: 'restaurant', // Primary type
+            keyword: keyword
+          };
 
-                let combinedResults = [...filteredResults];
-
-                // Get next pages if available and we need more results
-                while (pagination && pagination.hasNextPage && combinedResults.length < 50) {
-                  await new Promise(resolve => setTimeout(resolve, 200)); // Delay to prevent rate limiting
-                  const nextResults = await new Promise(resolveNext => {
-                    pagination.nextPage((results, status) => {
-                      if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
-                        const filteredNextResults = results.filter(place => placesConfig.filterResults(place));
-                        resolveNext(filteredNextResults);
-                      } else {
-                        resolveNext([]);
-                      }
-                    });
-                  });
-                  combinedResults = [...combinedResults, ...nextResults];
+          try {
+            const results = await new Promise((resolve, reject) => {
+              service.nearbySearch(request, (results, status) => {
+                if (status === window.google.maps.places.PlacesServiceStatus.OK) {
+                  resolve(results);
+                } else if (status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+                  resolve([]);
+                } else {
+                  reject(new Error('Failed to fetch results'));
                 }
-
-                resolve(combinedResults);
-              } else if (status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-                resolve([]);
-              } else {
-                reject(new Error('Unable to search restaurants. Please try again.'));
-              }
+              });
             });
-          });
 
-          // Add new unique results
-          const existingIds = new Set(allResults.map(r => r.place_id));
-          const uniqueNewResults = results.filter(r => !existingIds.has(r.place_id));
-          allResults = [...allResults, ...uniqueNewResults];
+            // Filter results
+            const filteredResults = results.filter(place => {
+              const placeName = place.name.toLowerCase();
 
-          console.log(`Found ${uniqueNewResults.length} new results at ${radius/1000}km radius. Total: ${allResults.length}`);
+              // Exclude places with unwanted terms in name
+              if (searchConfig.excludeTerms.some(term =>
+                  placeName.includes(term.toLowerCase()))) {
+                return false;
+              }
 
-        } catch (err) {
-          console.error(`Error searching at ${radius}m radius:`, err);
-          // Continue to next radius even if this one fails
+              // Exclude fast food chains
+              if (searchConfig.excludedChains.some(chain =>
+                  placeName.includes(chain.toLowerCase()))) {
+                return false;
+              }
+
+              // Exclude places that explicitly serve alcohol (if the data is available)
+              if (place.serves_alcohol === true) {
+                return false;
+              }
+
+              // Exclude bars and nightclubs
+              if (place.types?.includes('bar') || place.types?.includes('night_club')) {
+                return false;
+              }
+
+              return true;
+            });
+
+            // Add only unique results
+            const existingIds = new Set(allResults.map(r => r.place_id));
+            const uniqueNewResults = filteredResults.filter(r => !existingIds.has(r.place_id));
+            allResults = [...allResults, ...uniqueNewResults];
+
+          } catch (err) {
+            console.error(`Search error with keyword "${keyword}" at ${radius}m:`, err);
+            // Continue to next radius/keyword combination
+          }
         }
       }
 
-      // If we didn't find any results at all, throw an error
       if (allResults.length === 0) {
-        throw new Error('No suitable restaurants found in this area. Try a different location or expand your search.');
+        throw new Error('No suitable restaurants found. Try a different location or expand your search.');
       }
 
       // Sort results by distance
-      const placesResults = allResults
-          .map(place => {
-            let distance;
-            try {
-              // Preferred method using Google Maps geometry library
-              distance = window.google.maps.geometry.spherical.computeDistanceBetween(
-                  searchLocation,
-                  place.geometry.location
-              );
-            } catch (err) {
-              // Fallback calculation using Haversine formula
-              const toRadians = (degrees) => degrees * (Math.PI / 180);
-              const R = 6371; // Radius of the Earth in kilometers
-              const lat1 = searchLocation.lat();
-              const lon1 = searchLocation.lng();
-              const lat2 = place.geometry.location.lat();
-              const lon2 = place.geometry.location.lng();
-
-              const dLat = toRadians(lat2 - lat1);
-              const dLon = toRadians(lon2 - lon1);
-              const a =
-                  Math.sin(dLat/2) * Math.sin(dLat/2) +
-                  Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-                  Math.sin(dLon/2) * Math.sin(dLon/2);
-              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-              distance = R * c * 1000; // Convert to meters
-            }
-
-            return {
-              ...place,
-              distance
-            };
-          })
+      const sortedResults = allResults
+          .map(place => ({
+            ...place,
+            distance: window.google.maps.geometry.spherical.computeDistanceBetween(
+                searchLocation,
+                place.geometry.location
+            )
+          }))
           .sort((a, b) => a.distance - b.distance)
-          .slice(0, 50);
+          .slice(0, 30); // Limit to top 30 results
 
-      placesResults.forEach(place => {
+      // Create markers for each place
+      sortedResults.forEach(place => {
         const marker = new window.google.maps.Marker({
           position: place.geometry.location,
           map: map,
@@ -306,8 +275,9 @@ const RestaurantFinder = () => {
         markersRef.current.push(marker);
       });
 
-      setResults(placesResults);
+      setResults(sortedResults);
 
+      // Adjust map bounds to show all markers
       if (markersRef.current.length > 0) {
         const bounds = new window.google.maps.LatLngBounds();
         markersRef.current.forEach(marker => bounds.extend(marker.getPosition()));
@@ -360,6 +330,7 @@ const RestaurantFinder = () => {
       setLoading(false);
     }
   };
+
   return (
       <div className="relative h-screen w-screen">
         <div
