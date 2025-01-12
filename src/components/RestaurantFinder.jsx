@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Navigation, MapPin } from 'lucide-react';
 
 const RestaurantFinder = () => {
   const [location, setLocation] = useState('');
@@ -8,29 +8,22 @@ const RestaurantFinder = () => {
   const [error, setError] = useState('');
   const [map, setMap] = useState(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
+
+  // Refs
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const searchInputRef = useRef(null);
-  const autocompleteRef = useRef(null);      
-  const lastSelectedPlace = useRef(null);    
+  const autocompleteRef = useRef(null);
 
+  // Initialize Google Maps
   useEffect(() => {
     const initializeGoogleMaps = () => {
-      // Add debug logging
-      console.log('Checking Google Maps initialization...', {
-        googleExists: !!window.google,
-        mapsExists: !!(window.google?.maps),
-        placesExists: !!(window.google?.maps?.places)
-      });
-
-      if (!window.google || !window.google.maps || !window.google.maps.places) {
-        console.log('Google Maps not fully loaded, retrying...');
-        setTimeout(initializeGoogleMaps, 1000); // Increased timeout
+      if (!window.google?.maps?.places) {
+        setTimeout(initializeGoogleMaps, 1000);
         return;
       }
 
       if (!mapsLoaded) {
-        console.log('Maps now fully loaded');
         setMapsLoaded(true);
       }
 
@@ -46,6 +39,14 @@ const RestaurantFinder = () => {
             rotateControl: false,
             fullscreenControl: false
           });
+
+          // Add map idle event listener for when user pans the map
+          initialMap.addListener('idle', () => {
+            const center = initialMap.getCenter();
+            // Update location text with reverse geocoding
+            reverseGeocode(center);
+          });
+
           setMap(initialMap);
         } catch (err) {
           console.error('Error initializing map:', err);
@@ -57,23 +58,18 @@ const RestaurantFinder = () => {
         try {
           autocompleteRef.current = new window.google.maps.places.Autocomplete(
               searchInputRef.current,
-              { types: ['geocode'] }
+              {
+                types: ['(cities)'],
+                componentRestrictions: { country: 'us' }
+              }
           );
 
-          // When place is selected from autocomplete
           autocompleteRef.current.addListener('place_changed', () => {
             const place = autocompleteRef.current.getPlace();
             if (place.geometry) {
-              lastSelectedPlace.current = place;
               setLocation(place.formatted_address);
+              map.setCenter(place.geometry.location);
               handleSearch(place.geometry.location);
-            }
-          });
-
-          // Prevent form submission during autocomplete selection
-          searchInputRef.current.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && document.getElementsByClassName('pac-container').length > 0) {
-              e.preventDefault();
             }
           });
         } catch (err) {
@@ -86,17 +82,87 @@ const RestaurantFinder = () => {
     initializeGoogleMaps();
 
     return () => {
+      if (map) {
+        window.google?.maps?.event.clearInstanceListeners(map);
+      }
       if (autocompleteRef.current) {
         window.google?.maps?.event.clearInstanceListeners(autocompleteRef.current);
       }
     };
   }, [map, mapsLoaded]);
 
+  // Reverse geocode for updating location text when map is panned
+  const reverseGeocode = async (latLng) => {
+    if (!window.google) return;
+
+    const geocoder = new window.google.maps.Geocoder();
+    try {
+      const response = await new Promise((resolve, reject) => {
+        geocoder.geocode({ location: latLng }, (results, status) => {
+          if (status === 'OK') resolve(results);
+          else reject(status);
+        });
+      });
+
+      // Find the city and state from the results
+      const cityComponent = response[0].address_components.find(
+          component => component.types.includes('locality')
+      );
+      const stateComponent = response[0].address_components.find(
+          component => component.types.includes('administrative_area_level_1')
+      );
+
+      if (cityComponent && stateComponent) {
+        setLocation(`${cityComponent.long_name}, ${stateComponent.short_name}`);
+      }
+    } catch (error) {
+      console.error('Reverse geocoding error:', error);
+    }
+  };
+
+  // Get user's current location
+  const getUserLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setLoading(true);
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const userLocation = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          };
+
+          if (map) {
+            map.setCenter(userLocation);
+            await reverseGeocode(userLocation);
+            handleSearch(userLocation);
+          }
+          setLoading(false);
+        },
+        (error) => {
+          setError('Unable to get your location. Please try entering it manually.');
+          setLoading(false);
+          console.error('Geolocation error:', error);
+        }
+    );
+  };
+
+  // Search based on current map center
+  const searchCurrentLocation = () => {
+    if (!map) return;
+
+    const center = map.getCenter();
+    handleSearch(center);
+  };
+
   const clearMarkers = () => {
     markersRef.current.forEach(marker => marker.setMap(null));
     markersRef.current = [];
   };
-
+  // Main search handler - keeping your existing implementation
   const handleSearch = async (searchLocation) => {
     if (!window.google || !map) {
       setError('Maps service not yet initialized. Please try again.');
@@ -210,7 +276,7 @@ const RestaurantFinder = () => {
 
       // Perform searches with different radii and keywords
       for (const radius of searchConfig.searchRadii) {
-        if (allResults.length >= 30) break; // Stop if we have enough results
+        if (allResults.length >= 30) break;
 
         for (const keyword of searchConfig.positiveKeywords) {
           if (allResults.length >= 30) break;
@@ -218,7 +284,7 @@ const RestaurantFinder = () => {
           const request = {
             location: searchLocation,
             radius: radius,
-            type: 'restaurant', // Primary type
+            type: 'restaurant',
             keyword: keyword
           };
 
@@ -271,7 +337,6 @@ const RestaurantFinder = () => {
 
           } catch (err) {
             console.error(`Search error with keyword "${keyword}" at ${radius}m:`, err);
-            // Continue to next radius/keyword combination
           }
         }
       }
@@ -290,7 +355,7 @@ const RestaurantFinder = () => {
             )
           }))
           .sort((a, b) => a.distance - b.distance)
-          .slice(0, 30); // Limit to top 30 results
+          .slice(0, 30);
 
       // Create markers for each place
       sortedResults.forEach(place => {
@@ -338,45 +403,6 @@ const RestaurantFinder = () => {
     }
   };
 
-  const handleFormSubmit = async (e) => {
-    e.preventDefault();
-    if (!location) return;
-
-    if (!window.google || !map) {
-      setError('Maps service not yet initialized. Please try again.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const geocoder = new window.google.maps.Geocoder();
-      const { results: geocodeResults } = await new Promise((resolve, reject) => {
-        geocoder.geocode({
-          address: location.trim(),
-          componentRestrictions: { },
-          language: 'en'
-        }, (results, status) => {
-          if (status === window.google.maps.GeocoderStatus.OK && results && results.length > 0) {
-            resolve({ results });
-          } else {
-            console.error('Geocoding error:', status);
-            reject(new Error(`Could not find "${location.trim()}". Please try a different search term.`));
-          }
-        });
-      });
-
-      setLocation(geocodeResults[0].formatted_address);
-      handleSearch(geocodeResults[0].geometry.location);
-    } catch (err) {
-      console.error('Search error:', err);
-      setError(err.message || 'Location not found. Please try entering a city name or address.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
       <div className="relative h-screen w-screen">
         <div
@@ -388,25 +414,46 @@ const RestaurantFinder = () => {
           <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
             <div className="pointer-events-auto mb-6 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-4 sm:p-6">
               <h2 className="text-xl sm:text-2xl font-bold mb-4">Find Alcohol-Free Restaurants</h2>
-              <form onSubmit={handleFormSubmit} className="flex flex-col sm:flex-row gap-4">
-                <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Enter location (city, address, or place)"
-                    className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                    required
-                />
-                <button
-                    type="submit"
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-                    disabled={loading || !mapsLoaded}
-                >
-                  <Search size={20} />
-                  {loading ? 'Searching...' : 'Search'}
-                </button>
-              </form>
+
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1 relative">
+                  <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      placeholder="Enter city and state"
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                      onClick={getUserLocation}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                      title="Use my location"
+                  >
+                    <Navigation size={20} />
+                  </button>
+
+                  <button
+                      onClick={searchCurrentLocation}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                      title="Search this area"
+                  >
+                    <MapPin size={20} />
+                  </button>
+
+                  <button
+                      onClick={() => handleSearch(map.getCenter())}
+                      className="flex items-center justify-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                      disabled={loading || !mapsLoaded}
+                  >
+                    <Search size={20} />
+                    {loading ? 'Searching...' : 'Search'}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {error && (
