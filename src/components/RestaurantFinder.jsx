@@ -530,5 +530,4 @@ const RestaurantFinder = () => {
       </div>
   );
 };
-
 export default RestaurantFinder;
