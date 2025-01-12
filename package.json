@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "homepage": "https://nadrojddik.github.io/restaurant-finder/",
+  "homepage": "https://maps.jordankidd.com/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
