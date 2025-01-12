@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Navigation, MapPin } from 'lucide-react';
-
+import { Search, Navigation, MapPin, Phone } from 'lucide-react';
 const RestaurantFinder = () => {
   const [location, setLocation] = useState('');
   const [results, setResults] = useState([]);
@@ -8,6 +7,7 @@ const RestaurantFinder = () => {
   const [error, setError] = useState('');
   const [map, setMap] = useState(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
+  const [showOpenOnly, setShowOpenOnly] = useState(false);
 
   // Refs
   const mapRef = useRef(null);
@@ -330,9 +330,33 @@ const RestaurantFinder = () => {
               return true;
             });
 
+            // Get additional details for each place
+            const detailedResults = await Promise.all(
+                filteredResults.map(async (place) => {
+                  return new Promise((resolve) => {
+                    service.getDetails(
+                        {
+                          placeId: place.place_id,
+                          fields: ['formatted_phone_number']
+                        },
+                        (placeDetails, detailsStatus) => {
+                          if (detailsStatus === window.google.maps.places.PlacesServiceStatus.OK) {
+                            resolve({
+                              ...place,
+                              formatted_phone_number: placeDetails.formatted_phone_number
+                            });
+                          } else {
+                            resolve(place);
+                          }
+                        }
+                    );
+                  });
+                })
+            );
+
             // Add only unique results
             const existingIds = new Set(allResults.map(r => r.place_id));
-            const uniqueNewResults = filteredResults.filter(r => !existingIds.has(r.place_id));
+            const uniqueNewResults = detailedResults.filter(r => !existingIds.has(r.place_id));
             allResults = [...allResults, ...uniqueNewResults];
 
           } catch (err) {
@@ -349,12 +373,10 @@ const RestaurantFinder = () => {
       const sortedResults = allResults
           .map(place => ({
             ...place,
-            distance: window.google.maps.geometry?.spherical
-                ? window.google.maps.geometry.spherical.computeDistanceBetween(
-                    searchLocation,
-                    place.geometry.location
-                )
-                : 0  // Fallback value if geometry is not available
+            distance: window.google.maps.geometry.spherical.computeDistanceBetween(
+                searchLocation,
+                place.geometry.location
+            )
           }))
           .sort((a, b) => a.distance - b.distance)
           .slice(0, 30);
@@ -370,15 +392,18 @@ const RestaurantFinder = () => {
 
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
-            <div class="p-2">
-              <h3 class="font-bold mb-1">${place.name}</h3>
-              <p class="text-gray-600">${place.vicinity}</p>
-              ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
-              ${place.opening_hours?.open_now !== undefined ?
+          <div class="p-2">
+            <h3 class="font-bold mb-1">${place.name}</h3>
+            <p class="text-gray-600">${place.vicinity}</p>
+            ${place.rating ? `<p class="mt-1">Rating: ${place.rating} ⭐</p>` : ''}
+            ${place.opening_hours?.open_now !== undefined ?
               `<p class="mt-1">${place.opening_hours.open_now ? '✅ Open now' : '❌ Closed'}</p>`
               : ''}
-            </div>
-          `
+            ${place.formatted_phone_number ?
+              `<p class="mt-1">📞 ${place.formatted_phone_number}</p>`
+              : ''}
+          </div>
+        `
         });
 
         marker.addListener('click', () => {
@@ -404,6 +429,19 @@ const RestaurantFinder = () => {
       setLoading(false);
     }
   };
+  const handlePhoneCall = (phoneNumber) => {
+    if (phoneNumber) {
+      window.location.href = `tel:${phoneNumber}`;
+    }
+  };
+
+  const handleNavigation = (place) => {
+    if (place.geometry?.location) {
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+    }
+  };
 
   return (
       <div className="relative h-screen w-screen">
@@ -413,11 +451,11 @@ const RestaurantFinder = () => {
         />
 
         <div className="absolute inset-x-0 top-0 z-10 pointer-events-none">
-          <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-            <div className="pointer-events-auto mb-6 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-4 sm:p-6">
-              <h2 className="text-xl sm:text-2xl font-bold mb-4">Find Alcohol-Free Restaurants</h2>
+          <div className="max-w-7xl mx-auto px-2 py-3 sm:px-6 lg:px-8">
+            <div className="pointer-events-auto mb-4 sm:mb-6 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-3 sm:p-6">
+              <h2 className="text-lg sm:text-2xl font-bold mb-3 sm:mb-4">Find Alcohol-Free Restaurants</h2>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
                 <div className="flex-1 relative">
                   <input
                       ref={searchInputRef}
@@ -425,41 +463,43 @@ const RestaurantFinder = () => {
                       value={location}
                       onChange={(e) => setLocation(e.target.value)}
                       placeholder="Enter city and state"
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                      className="w-full px-3 py-2 text-sm sm:text-base border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                   />
                 </div>
 
                 <div className="flex gap-2">
                   <button
                       onClick={getUserLocation}
-                      className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
                       title="Use my location"
                   >
-                    <Navigation size={20} />
+                    <Navigation size={18} />
+                    <span className="sm:hidden">Location</span>
                   </button>
 
                   <button
                       onClick={searchCurrentLocation}
-                      className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
                       title="Search this area"
                   >
-                    <MapPin size={20} />
+                    <MapPin size={18} />
+                    <span className="sm:hidden">Area</span>
                   </button>
 
                   <button
                       onClick={() => handleSearch(map.getCenter())}
-                      className="flex items-center justify-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
                       disabled={loading || !mapsLoaded}
                   >
-                    <Search size={20} />
-                    {loading ? 'Searching...' : 'Search'}
+                    <Search size={18} />
+                    <span>{loading ? 'Searching...' : 'Search'}</span>
                   </button>
                 </div>
               </div>
             </div>
 
             {error && (
-                <div className="pointer-events-auto mb-6 p-4 bg-red-50 text-red-600 rounded-lg shadow-lg">
+                <div className="pointer-events-auto mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 text-red-600 rounded-lg shadow-lg mx-2 sm:mx-0">
                   {error}
                 </div>
             )}
@@ -467,47 +507,87 @@ const RestaurantFinder = () => {
         </div>
 
         {results.length > 0 && (
-            <div className="absolute top-[140px] right-4 lg:right-8 z-10 w-full max-w-sm pointer-events-auto">
-              <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">Found {results.length} restaurants</h3>
-                <div className="space-y-4 max-h-[calc(100vh-220px)] overflow-y-auto">
-                  {results.map((place) => (
-                      <div
-                          key={place.place_id}
-                          className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm"
-                          onClick={() => {
-                            map.panTo(place.geometry.location);
-                            map.setZoom(16);
-                          }}
-                      >
-                        <h4 className="text-lg font-semibold mb-2">{place.name}</h4>
-                        <p className="text-gray-600 mb-2">{place.vicinity}</p>
-                        <div className="flex items-center gap-4">
-                          {place.rating && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-yellow-500">★</span>
-                                <span>{place.rating.toFixed(1)}</span>
+            <div className="absolute top-[116px] sm:top-[140px] right-0 sm:right-4 lg:right-8 z-10 w-full sm:max-w-sm pointer-events-auto px-2 sm:px-0">
+              <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-3 sm:p-4">
+                <div className="flex justify-between items-center mb-3 sm:mb-4">
+                  <h3 className="text-base sm:text-lg font-semibold">Found {results.length} restaurants</h3>
+                  <label className="flex items-center gap-2">
+                    <input
+                        type="checkbox"
+                        checked={showOpenOnly}
+                        onChange={(e) => setShowOpenOnly(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-xs sm:text-sm text-gray-600">Open now only</span>
+                  </label>
+                </div>
+                <div className="space-y-3 sm:space-y-4 max-h-[calc(100vh-180px)] sm:max-h-[calc(100vh-220px)] overflow-y-auto">
+                  {results
+                      .filter(place => !showOpenOnly || place.opening_hours?.open_now)
+                      .map((place) => (
+                          <div
+                              key={place.place_id}
+                              className="bg-white rounded-lg p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm"
+                              onClick={() => {
+                                map.panTo(place.geometry.location);
+                                map.setZoom(16);
+                              }}
+                          >
+                            <h4 className="text-base sm:text-lg font-semibold mb-1 sm:mb-2">{place.name}</h4>
+                            <p className="text-sm sm:text-base text-gray-600 mb-2">{place.vicinity}</p>
+                            <div className="flex items-center gap-3 sm:gap-4 text-sm">
+                              {place.rating && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-yellow-500">★</span>
+                                    <span>{place.rating.toFixed(1)}</span>
+                                  </div>
+                              )}
+                              <div className="text-gray-600">
+                                {(place.distance / 1000).toFixed(1)}km away
                               </div>
-                          )}
-                          <div className="text-gray-600 text-sm">
-                            {(place.distance / 1000).toFixed(1)}km away
-                          </div>
-                        </div>
-                        <div className="mt-2">
-                    <span className={`px-2 py-1 rounded-full text-sm ${
+                            </div>
+                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-1 rounded-full text-xs sm:text-sm ${
                         place.opening_hours?.open_now ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                     }`}>
                       {place.opening_hours?.open_now ? 'Open' : 'Closed'}
                     </span>
-                        </div>
-                      </div>
-                  ))}
+
+                              <div className="flex gap-2">
+                                {place.formatted_phone_number && (
+                                    <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handlePhoneCall(place.formatted_phone_number);
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-1 text-xs sm:text-sm bg-blue-100 text-blue-800 rounded-full hover:bg-blue-200 transition-colors"
+                                    >
+                                      <Phone size={12} className="sm:hidden" />
+                                      <Phone size={14} className="hidden sm:block" />
+                                      Call
+                                    </button>
+                                )}
+                                <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleNavigation(place);
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs sm:text-sm bg-blue-100 text-blue-800 rounded-full hover:bg-blue-200 transition-colors"
+                                >
+                                  <Navigation size={12} className="sm:hidden" />
+                                  <Navigation size={14} className="hidden sm:block" />
+                                  Navigate
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                      ))}
                 </div>
               </div>
             </div>
         )}
       </div>
-  );
+  );;
 };
 
 export default RestaurantFinder;
